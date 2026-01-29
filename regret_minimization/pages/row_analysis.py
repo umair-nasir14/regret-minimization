@@ -120,8 +120,8 @@ with left:
     st.subheader("Reasoning Trace")
     analysis = (row.analysis or "").strip()
     if analysis:
-        # Preserve line breaks without forcing monospace unless you prefer st.code.
-        st.markdown(analysis.replace("\n", "  \n"))
+        # Render as plain text (no Markdown parsing) to avoid code-fence edge cases on deployment.
+        st.code(analysis, language="text")
     else:
         st.info("No `Reasoning Trace` field found for this row.")
 
