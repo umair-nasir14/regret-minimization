@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import inspect
+import subprocess
 from pathlib import Path
 
 import streamlit as st
@@ -26,6 +27,25 @@ st.set_page_config(
     page_title="Regret Minimization – Results Browser",
     layout="wide",
 )
+
+def _build_fingerprint() -> str:
+    """
+    Helps debug local-vs-cloud mismatches. Streamlit Community Cloud deploys from GitHub;
+    if the UI doesn't change, you're likely looking at an older build/branch.
+    """
+    try:
+        # Streamlit Cloud typically deploys from a git clone; locally this also works.
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(_APP_DIR),
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+        return out.strip()
+    except Exception:
+        return "unknown"
+
+st.sidebar.caption(f"Build: `{_build_fingerprint()}`")
 
 _COLUMNS_PARAMS = inspect.signature(st.columns).parameters
 
@@ -99,10 +119,11 @@ def _render_row_analysis_inline(df, *, row_index: int) -> None:
 
     with left:
         st.subheader("Analysis")
-        analysis = (row.analysis or "").strip()
+        # Use rstrip (not strip) so we never drop leading content/lines.
+        analysis = (row.analysis or "").rstrip()
         if analysis:
             # Render as plain text (no Markdown parsing) to avoid code-fence edge cases on deployment.
-            st.code(analysis, language="text")
+            st.text_area("Analysis", value=analysis, height=520)
         else:
             st.info("No `Analysis` field found for this row.")
 

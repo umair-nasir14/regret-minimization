@@ -118,10 +118,12 @@ left, right = _columns([3, 2], vertical_alignment="top")
 
 with left:
     st.subheader("Reasoning Trace")
-    analysis = (row.analysis or "").strip()
+    # Use rstrip (not strip) so we never drop leading content/lines.
+    analysis = (row.analysis or "").rstrip()
     if analysis:
         # Render as plain text (no Markdown parsing) to avoid code-fence edge cases on deployment.
-        st.code(analysis, language="text")
+        # text_area tends to be the most stable across Streamlit versions and clearly preserves all lines.
+        st.text_area("Reasoning Trace", value=analysis, height=520)
     else:
         st.info("No `Reasoning Trace` field found for this row.")
 
