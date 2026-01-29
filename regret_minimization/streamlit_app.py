@@ -79,11 +79,20 @@ view = view.rename(
     }
 )
 
-display_df = view[["timestamp", "coin", "Hindsight Action", "Action"]].copy()
-display_df = display_df.set_index("timestamp")
+# Data shown in the table. Include `row_index` so selection always maps to the correct row.
+table_df = view[["row_index", "timestamp", "coin", "Hindsight Action", "Action"]].copy()
 
 df_params = inspect.signature(st.dataframe).parameters
 supports_row_selection = "selection_mode" in df_params and "on_select" in df_params
+
+with st.expander("Debug", expanded=False):
+    st.write(
+        {
+            "streamlit_version": st.__version__,
+            "supports_row_click_selection": bool(supports_row_selection),
+            "note": "Row-click selection requires Streamlit >= 1.35.0.",
+        }
+    )
 
 if supports_row_selection:
     # Streamlit's built-in row selection UI includes a checkbox column. In practice, users
@@ -101,13 +110,14 @@ if supports_row_selection:
     )
 
     event = st.dataframe(
-        display_df,
+        table_df,
         use_container_width=True,
-        hide_index=False,
+        hide_index=True,
         selection_mode="single-row",
         on_select="rerun",
         key="results_table",
         column_config={
+            "row_index": st.column_config.NumberColumn("row_index", width="small", disabled=True),
             "timestamp": st.column_config.TextColumn("timestamp", width="medium"),
             "coin": st.column_config.TextColumn("coin", width="small"),
             "Hindsight Action": st.column_config.TextColumn("Hindsight Action", width="large"),
@@ -119,8 +129,7 @@ if supports_row_selection:
     sel_rows = getattr(sel, "rows", None) if sel is not None else None
 
     if sel_rows:
-        selected = view.iloc[int(sel_rows[0])]
-        selected_row_index = int(selected["row_index"])
+        selected_row_index = int(table_df.iloc[int(sel_rows[0])]["row_index"])
         st.session_state["selected_row_index"] = selected_row_index
         st.query_params["row"] = str(selected_row_index)
         st.switch_page("pages/row_analysis.py")
@@ -130,9 +139,9 @@ else:
         "You’re on an older version, so use the selector below (or upgrade Streamlit to enable row-click)."
     )
     st.dataframe(
-        display_df,
+        table_df.drop(columns=["row_index"]),
         use_container_width=True,
-        hide_index=False,
+        hide_index=True,
         column_config={
             "timestamp": st.column_config.TextColumn("timestamp", width="medium"),
             "coin": st.column_config.TextColumn("coin", width="small"),
