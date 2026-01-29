@@ -123,7 +123,7 @@ with left:
     if analysis:
         # Render as plain text (no Markdown parsing) to avoid code-fence edge cases on deployment.
         # text_area tends to be the most stable across Streamlit versions and clearly preserves all lines.
-        st.text_area("Reasoning Trace", value=analysis, height=520)
+        st.text_area("", value=analysis, height=920)
     else:
         st.info("No `Reasoning Trace` field found for this row.")
 
