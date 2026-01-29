@@ -11,7 +11,15 @@ _APP_DIR = Path(__file__).resolve().parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
 
-from streamlit_data import load_regret_data  # noqa: E402
+from streamlit_data import get_row, load_regret_data  # noqa: E402
+
+try:
+    # Optional: enables true row-click selection on older Streamlit versions.
+    from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode  # type: ignore
+
+    _HAS_AGGRID = True
+except Exception:
+    _HAS_AGGRID = False
 
 
 st.set_page_config(
@@ -31,6 +39,84 @@ def _columns(spec, *, vertical_alignment: str | None = None):
         return st.columns(spec, vertical_alignment=vertical_alignment)
     return st.columns(spec)
 
+
+def _qp_get(key: str) -> str | None:
+    # Streamlit >= 1.30-ish has `st.query_params`; older versions use experimental APIs.
+    if hasattr(st, "query_params"):
+        v = st.query_params.get(key)  # type: ignore[attr-defined]
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    try:
+        d = st.experimental_get_query_params()
+        vals = d.get(key)
+        if not vals:
+            return None
+        s = str(vals[0]).strip()
+        return s or None
+    except Exception:
+        return None
+
+
+def _qp_set(**kwargs: str | int | None) -> None:
+    payload = {k: str(v) for k, v in kwargs.items() if v is not None and str(v).strip() != ""}
+    if hasattr(st, "query_params"):
+        # Update only provided keys
+        for k, v in payload.items():
+            st.query_params[k] = v  # type: ignore[attr-defined]
+        return
+
+    try:
+        st.experimental_set_query_params(**payload)
+    except Exception:
+        pass
+
+
+def _switch_to_row(row_index: int) -> None:
+    st.session_state["selected_row_index"] = int(row_index)
+    _qp_set(row=int(row_index))
+
+
+def _render_row_analysis_inline(df, *, row_index: int) -> None:
+    row = get_row(df, row_index=row_index)
+    if row is None:
+        st.error(f"Row `{row_index}` not found in the loaded results.")
+        return
+
+    top = st.container()
+    with top:
+        c1, c2, c3, c4 = _columns([1, 2, 1, 2], vertical_alignment="center")
+        c1.metric("row_index", row.row_index)
+        c2.metric("timestamp", row.decision_timestamp or "")
+        c3.metric("Action (classified)", row.classified_action or "")
+        c4.metric("Hindsight Action", row.hindsight_action or "")
+
+    st.divider()
+
+    left, right = _columns([3, 2], vertical_alignment="top")
+
+    with left:
+        st.subheader("Analysis")
+        analysis = (row.analysis or "").strip()
+        if analysis:
+            # Preserve line breaks without forcing monospace.
+            st.markdown(analysis.replace("\n", "  \n"))
+        else:
+            st.info("No `Analysis` field found for this row.")
+
+    with right:
+        st.subheader("Features")
+        st.json(row.features, expanded=False)
+
+        parsed = df.loc[df["row_index"] == row.row_index, "state_json_parsed"]
+        parsed_obj = None
+        if not parsed.empty:
+            parsed_obj = parsed.iloc[0]
+        if parsed_obj is not None:
+            with st.expander("state_json (parsed)", expanded=False):
+                st.json(parsed_obj, expanded=False)
 
 @st.cache_data(show_spinner=False)
 def _load_df(_results_signature: tuple[tuple[str, int, int], ...]):
@@ -54,7 +140,7 @@ def _get_results_signature() -> tuple[tuple[str, int, int], ...]:
 
 
 st.title("Regret Minimization – Results Browser")
-st.caption("Browse hindsight decompositions vs. classified actions. Click a row to open its detailed analysis.")
+st.caption("Click a row to open the reasoning traces.")
 
 df = _load_df(_get_results_signature())
 
@@ -74,25 +160,31 @@ view = view.rename(
     columns={
         "decision_timestamp": "timestamp",
         "coin": "coin",
-        "hindsight_action": "Hindsight Action",
-        "Action": "Action",
+        "hindsight_action": "Hindsight Optimal Action",
+        "Action": "LLM Classifier Actions",
     }
 )
 
-# Data shown in the table. Include `row_index` so selection always maps to the correct row.
-table_df = view[["row_index", "timestamp", "coin", "Hindsight Action", "Action"]].copy()
+display_df = view[["timestamp", "coin", "Hindsight Optimal Action", "LLM Classifier Actions"]].copy()
+display_df = display_df.set_index("timestamp")
 
 df_params = inspect.signature(st.dataframe).parameters
 supports_row_selection = "selection_mode" in df_params and "on_select" in df_params
 
-with st.expander("Debug", expanded=False):
-    st.write(
-        {
-            "streamlit_version": st.__version__,
-            "supports_row_click_selection": bool(supports_row_selection),
-            "note": "Row-click selection requires Streamlit >= 1.35.0.",
-        }
-    )
+selected_from_qp = _qp_get("row")
+selected_row_index: int | None = None
+if selected_from_qp is not None:
+    try:
+        selected_row_index = int(selected_from_qp)
+    except Exception:
+        selected_row_index = None
+if selected_row_index is None:
+    v = st.session_state.get("selected_row_index")
+    if v is not None:
+        try:
+            selected_row_index = int(v)
+        except Exception:
+            selected_row_index = None
 
 if supports_row_selection:
     # Streamlit's built-in row selection UI includes a checkbox column. In practice, users
@@ -110,18 +202,17 @@ if supports_row_selection:
     )
 
     event = st.dataframe(
-        table_df,
+        display_df,
         use_container_width=True,
-        hide_index=True,
+        hide_index=False,
         selection_mode="single-row",
         on_select="rerun",
         key="results_table",
         column_config={
-            "row_index": st.column_config.NumberColumn("row_index", width="small", disabled=True),
             "timestamp": st.column_config.TextColumn("timestamp", width="medium"),
             "coin": st.column_config.TextColumn("coin", width="small"),
-            "Hindsight Action": st.column_config.TextColumn("Hindsight Action", width="large"),
-            "Action": st.column_config.TextColumn("Action", width="small"),
+            "Hindsight Optimal Action": st.column_config.TextColumn("Hindsight Optimal Action", width="large"),
+            "LLM Classifier Actions": st.column_config.TextColumn("LLM Classifier Actions", width="small"),
         },
     )
 
@@ -129,51 +220,84 @@ if supports_row_selection:
     sel_rows = getattr(sel, "rows", None) if sel is not None else None
 
     if sel_rows:
-        selected_row_index = int(table_df.iloc[int(sel_rows[0])]["row_index"])
-        st.session_state["selected_row_index"] = selected_row_index
-        st.query_params["row"] = str(selected_row_index)
-        st.switch_page("pages/row_analysis.py")
+        selected = view.iloc[int(sel_rows[0])]
+        selected_row_index = int(selected["row_index"])
+        _switch_to_row(selected_row_index)
+
+        # Newer Streamlit multipage: switch if available, otherwise render inline.
+        if hasattr(st, "switch_page"):
+            st.switch_page("pages/row_analysis.py")
+        else:
+            st.session_state["show_inline_analysis"] = True
 else:
-    st.info(
-        "Click-to-open row selection is available in Streamlit `>=1.35.0`. "
-        "You’re on an older version, so use the selector below (or upgrade Streamlit to enable row-click)."
-    )
-    st.dataframe(
-        table_df.drop(columns=["row_index"]),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "timestamp": st.column_config.TextColumn("timestamp", width="medium"),
-            "coin": st.column_config.TextColumn("coin", width="small"),
-            "Hindsight Action": st.column_config.TextColumn("Hindsight Action", width="large"),
-            "Action": st.column_config.TextColumn("Action", width="small"),
-        },
-    )
+    if _HAS_AGGRID:
+        st.caption("Row click selection is enabled via AgGrid for this Streamlit version.")
+        # Use a copy that includes row_index for selection -> analysis lookup.
+        grid_df = view[["row_index", "timestamp", "coin", "Hindsight Optimal Action", "LLM Classifier Actions"]].copy()
 
-    options = [
-        f"{r['timestamp']}  |  {r['coin']}  |  H={r['Hindsight Action']}  |  A={r['Action']}"
-        for _, r in view.iterrows()
-    ]
-    default_i = 0
-    last_row = st.session_state.get("selected_row_index")
-    if last_row is not None:
-        try:
-            last_row = int(last_row)
-            match = view.index[view["row_index"] == last_row]
-            if len(match) > 0:
-                default_i = int(match[0])
-        except Exception:
-            pass
+        gb = GridOptionsBuilder.from_dataframe(grid_df)
+        gb.configure_pagination(enabled=True, paginationAutoPageSize=True)
+        gb.configure_selection("single", use_checkbox=False)
+        gb.configure_column("row_index", hide=True)
+        gb.configure_default_column(resizable=True, sortable=True, filter=True)
+        grid_options = gb.build()
 
-    picked = st.selectbox("Open by timestamp", options=options, index=default_i)
-    picked_i = int(options.index(picked))
-    selected_row_index = int(view.iloc[picked_i]["row_index"])
+        grid_resp = AgGrid(
+            grid_df,
+            gridOptions=grid_options,
+            update_mode=GridUpdateMode.SELECTION_CHANGED,
+            allow_unsafe_jscode=False,
+            fit_columns_on_grid_load=True,
+            theme="streamlit",
+            height=420,
+        )
 
-    if st.button("Open analysis", type="primary"):
-        st.session_state["selected_row_index"] = selected_row_index
-        st.query_params["row"] = str(selected_row_index)
-        st.switch_page("pages/row_analysis.py")
+        selected_rows = (grid_resp or {}).get("selected_rows") or []
+        if selected_rows:
+            try:
+                selected_row_index = int(selected_rows[0].get("row_index"))
+                _switch_to_row(selected_row_index)
+                st.session_state["show_inline_analysis"] = True
+            except Exception:
+                pass
+    else:
+        st.info(
+            "This Streamlit version doesn’t support row-click events for `st.dataframe`. "
+            "Install `streamlit-aggrid` to enable row-click selection, or use the selector below."
+        )
+        st.dataframe(display_df, use_container_width=True, hide_index=False)
+
+        options = [
+            f"{r['timestamp']}  |  {r['coin']}  |  H={r['Hindsight Optimal Action']}  |  A={r['LLM Classifier Actions']}"
+            for _, r in view.iterrows()
+        ]
+        default_i = 0
+        last_row = st.session_state.get("selected_row_index")
+        if last_row is not None:
+            try:
+                last_row = int(last_row)
+                match = view.index[view["row_index"] == last_row]
+                if len(match) > 0:
+                    default_i = int(match[0])
+            except Exception:
+                pass
+
+        picked = st.selectbox("Open by timestamp", options=options, index=default_i)
+        picked_i = int(options.index(picked))
+        selected_row_index = int(view.iloc[picked_i]["row_index"])
+
+        if st.button("Open analysis", type="primary"):
+            _switch_to_row(selected_row_index)
+            st.session_state["show_inline_analysis"] = True
 
 st.divider()
+
+if st.session_state.get("show_inline_analysis") and selected_row_index is not None:
+    st.subheader("Row analysis")
+    if st.button("Back to table", type="primary"):
+        st.session_state["show_inline_analysis"] = False
+        # Keep selection in session/query params, but collapse analysis panel.
+    _render_row_analysis_inline(df, row_index=selected_row_index)
+    st.divider()
 
 

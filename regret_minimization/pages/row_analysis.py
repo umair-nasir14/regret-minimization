@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import inspect
 from pathlib import Path
 
 import streamlit as st
@@ -17,6 +18,33 @@ st.set_page_config(
     page_title="Row Analysis",
     layout="wide",
 )
+
+_COLUMNS_PARAMS = inspect.signature(st.columns).parameters
+
+
+def _columns(spec, *, vertical_alignment: str | None = None):
+    if vertical_alignment is not None and "vertical_alignment" in _COLUMNS_PARAMS:
+        return st.columns(spec, vertical_alignment=vertical_alignment)
+    return st.columns(spec)
+
+
+def _qp_get(key: str) -> str | None:
+    if hasattr(st, "query_params"):
+        v = st.query_params.get(key)  # type: ignore[attr-defined]
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
+    try:
+        d = st.experimental_get_query_params()
+        vals = d.get(key)
+        if not vals:
+            return None
+        s = str(vals[0]).strip()
+        return s or None
+    except Exception:
+        return None
 
 
 @st.cache_data(show_spinner=False)
@@ -41,7 +69,7 @@ def _get_results_signature() -> tuple[tuple[str, int, int], ...]:
 
 
 def _get_selected_row_index() -> int | None:
-    qp = st.query_params.get("row")
+    qp = _qp_get("row")
     if qp is not None and str(qp).strip() != "":
         try:
             return int(str(qp).strip())
@@ -64,19 +92,21 @@ st.title("Row Analysis")
 if row_index is None:
     st.warning("No row selected. Go back and click a row in the table.")
     if st.button("Back to table", type="primary"):
-        st.switch_page("streamlit_app.py")
+        if hasattr(st, "switch_page"):
+            st.switch_page("streamlit_app.py")
     st.stop()
 
 row = get_row(df, row_index=row_index)
 if row is None:
     st.error(f"Row `{row_index}` not found in the loaded results.")
     if st.button("Back to table", type="primary"):
-        st.switch_page("streamlit_app.py")
+        if hasattr(st, "switch_page"):
+            st.switch_page("streamlit_app.py")
     st.stop()
 
 top = st.container()
 with top:
-    c1, c2, c3, c4 = st.columns([1, 2, 1, 2])
+    c1, c2, c3, c4 = _columns([1, 2, 1, 2], vertical_alignment="center")
     c1.metric("row_index", row.row_index)
     c2.metric("timestamp", row.decision_timestamp or "")
     c3.metric("Action (classified)", row.classified_action or "")
@@ -84,7 +114,7 @@ with top:
 
 st.divider()
 
-left, right = st.columns([3, 2], vertical_alignment="top")
+left, right = _columns([3, 2], vertical_alignment="top")
 
 with left:
     st.subheader("Analysis")
@@ -109,5 +139,6 @@ with right:
 
 st.divider()
 if st.button("Back to table", type="primary"):
-    st.switch_page("streamlit_app.py")
+    if hasattr(st, "switch_page"):
+        st.switch_page("streamlit_app.py")
 
