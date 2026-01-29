@@ -1,0 +1,12 @@
+System: You are a careful quantitative trading analyst. Use ONLY the provided features. Do not invent missing data. Do not assume access to future prices/returns beyond what is explicitly provided. Your output MUST be exactly one line in the strict format below. Do not output reasoning, explanations, extra whitespace lines, or any other text.
+User: You are given one row from a dataset of BTC trade opportunities. Your task is to classify the dataset's action label into exactly one of: long, short, no_trade.
+
+The following features are the state of the market listed as a mapping of the feature to a brief description:
+{state_features}
+
+trade-related features are as follows: Our asset is {coin}, and at {decision_timestamp_iso} we take a snapshot of the market and ask what to do next. The tape says the market is trading around ${close}; over the last 15 minutes it has delivered {ret_15m} and it has been moving with {rv_15m}% volatility. The carry backdrop comes from {funding}%, with {funding_z_7d} telling us how unusually rich or cheap that funding is versus the last week. Flow is captured by {ofi_1m}, and the liquidity/impact environment shows up in bps {impact_skew_bps}. Positioning pressure is proxied by {open_interest}. Finally, context matters: {hour} and {dow} give time-of-day and day-of-week seasonality, {is_gap_fill} flags a gap-fill setup, and {trade_count} summarizes how active the market has been recently.
+
+Output format (STRICT, one line only):
+Action: long
+Action: short
+Action: no_trade
