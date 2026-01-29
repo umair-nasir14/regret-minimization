@@ -30,6 +30,17 @@ st.caption("Browse hindsight decompositions vs. classified actions. Click a row 
 
 df = _load_df()
 
+total_rows = int(df["row_index"].nunique()) if "row_index" in df.columns else int(len(df))
+if "Analysis" in df.columns:
+    _a = df["Analysis"]
+    rows_with_analysis = int((_a.notna() & _a.astype(str).str.strip().ne("")).sum())
+else:
+    rows_with_analysis = 0
+
+c1, c2 = st.columns([1, 5], vertical_alignment="center")
+c1.metric("Rows w/ reasoning traces", rows_with_analysis)
+c2.caption(f"Total rows: {total_rows}")
+
 view = df[["row_index", "decision_timestamp", "coin", "hindsight_action", "Action"]].copy()
 view = view.rename(
     columns={
@@ -113,5 +124,5 @@ else:
         st.switch_page("pages/row_analysis.py")
 
 st.divider()
-st.write("Tip: If selection doesn’t work in your Streamlit version, you can open the details directly via `?row=<row_index>`.")
+
 
