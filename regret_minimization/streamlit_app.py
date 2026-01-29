@@ -19,6 +19,18 @@ st.set_page_config(
     layout="wide",
 )
 
+_COLUMNS_PARAMS = inspect.signature(st.columns).parameters
+
+
+def _columns(spec, *, vertical_alignment: str | None = None):
+    """
+    Streamlit `st.columns(..., vertical_alignment=...)` was added after some versions.
+    Keep compatibility by only passing it when supported.
+    """
+    if vertical_alignment is not None and "vertical_alignment" in _COLUMNS_PARAMS:
+        return st.columns(spec, vertical_alignment=vertical_alignment)
+    return st.columns(spec)
+
 
 @st.cache_data(show_spinner=False)
 def _load_df(_results_signature: tuple[tuple[str, int, int], ...]):
@@ -53,7 +65,7 @@ if "Analysis" in df.columns:
 else:
     rows_with_analysis = 0
 
-c1, c2 = st.columns([1, 5], vertical_alignment="center")
+c1, c2 = _columns([1, 5], vertical_alignment="center")
 c1.metric("Rows w/ reasoning traces", rows_with_analysis)
 c2.caption(f"Total rows: {total_rows}")
 
@@ -74,6 +86,20 @@ df_params = inspect.signature(st.dataframe).parameters
 supports_row_selection = "selection_mode" in df_params and "on_select" in df_params
 
 if supports_row_selection:
+    # Streamlit's built-in row selection UI includes a checkbox column. In practice, users
+    # can click anywhere on the row to select it, so we hide the checkbox to make the
+    # interaction feel like "click the row to open".
+    st.markdown(
+        """
+        <style>
+        /* Scope to the dataframe widget */
+        div[data-testid="stDataFrame"] [data-testid="baseCheckbox"] { display: none !important; }
+        div[data-testid="stDataFrame"] input[type="checkbox"] { display: none !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     event = st.dataframe(
         display_df,
         use_container_width=True,
@@ -100,8 +126,8 @@ if supports_row_selection:
         st.switch_page("pages/row_analysis.py")
 else:
     st.info(
-        "Your Streamlit version doesn’t support clickable row selection in tables. "
-        "Use the selector below to open a row’s details."
+        "Click-to-open row selection is available in Streamlit `>=1.35.0`. "
+        "You’re on an older version, so use the selector below (or upgrade Streamlit to enable row-click)."
     )
     st.dataframe(
         display_df,
