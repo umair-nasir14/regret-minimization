@@ -21,14 +21,30 @@ st.set_page_config(
 
 
 @st.cache_data(show_spinner=False)
-def _load_df():
+def _load_df(_results_signature: tuple[tuple[str, int, int], ...]):
     return load_regret_data()
+
+def _get_results_signature() -> tuple[tuple[str, int, int], ...]:
+    results_dir = _APP_DIR / "results"
+    candidates = [
+        results_dir / "hindsight_decompositions.json",
+        results_dir / "hindsight_decompositions_old.json",
+        results_dir / "action_classifications.json",
+        results_dir / "action_classification.json",
+        results_dir / "action_classifications_old.json",
+    ]
+    sig: list[tuple[str, int, int]] = []
+    for p in candidates:
+        if p.exists():
+            s = p.stat()
+            sig.append((p.name, int(getattr(s, "st_mtime_ns", int(s.st_mtime * 1e9))), int(s.st_size)))
+    return tuple(sig)
 
 
 st.title("Regret Minimization – Results Browser")
 st.caption("Browse hindsight decompositions vs. classified actions. Click a row to open its detailed analysis.")
 
-df = _load_df()
+df = _load_df(_get_results_signature())
 
 total_rows = int(df["row_index"].nunique()) if "row_index" in df.columns else int(len(df))
 if "Analysis" in df.columns:

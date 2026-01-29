@@ -20,8 +20,24 @@ st.set_page_config(
 
 
 @st.cache_data(show_spinner=False)
-def _load_df():
+def _load_df(_results_signature: tuple[tuple[str, int, int], ...]):
     return load_regret_data()
+
+def _get_results_signature() -> tuple[tuple[str, int, int], ...]:
+    results_dir = _APP_DIR / "results"
+    candidates = [
+        results_dir / "hindsight_decompositions.json",
+        results_dir / "hindsight_decompositions_old.json",
+        results_dir / "action_classifications.json",
+        results_dir / "action_classification.json",
+        results_dir / "action_classifications_old.json",
+    ]
+    sig: list[tuple[str, int, int]] = []
+    for p in candidates:
+        if p.exists():
+            s = p.stat()
+            sig.append((p.name, int(getattr(s, "st_mtime_ns", int(s.st_mtime * 1e9))), int(s.st_size)))
+    return tuple(sig)
 
 
 def _get_selected_row_index() -> int | None:
@@ -40,7 +56,7 @@ def _get_selected_row_index() -> int | None:
         return None
 
 
-df = _load_df()
+df = _load_df(_get_results_signature())
 row_index = _get_selected_row_index()
 
 st.title("Row Analysis")
