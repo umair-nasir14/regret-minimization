@@ -42,6 +42,28 @@ def _safe_json_loads(s: Any) -> Any | None:
         return None
 
 
+def _clean_analysis(s: Any) -> str:
+    """
+    Some rows contain analysis that begins with a Markdown code fence like:
+      ```VERDICT: ...
+
+    In Markdown, the text after ``` on the same line is treated as the "language",
+    so "VERDICT: ..." won't render. Strip leading/trailing fences so the VERDICT
+    line appears in the UI.
+    """
+    if s is None:
+        return ""
+    t = str(s)
+    if t.startswith("```"):
+        t = t[3:]
+        # If it was a fence start, the content is usually on the next line.
+        t = t.lstrip("\n")
+    if t.endswith("```"):
+        t = t[:-3]
+        t = t.rstrip("\n")
+    return t
+
+
 def load_regret_data(
     *,
     decompositions_path: Path | None = None,
@@ -160,7 +182,7 @@ def get_row(df: pd.DataFrame, row_index: int) -> RegretRow | None:
         coin=str(r.get("coin") or features.get("coin") or ""),
         hindsight_action=str(r.get("hindsight_action") or ""),
         classified_action=str(r.get("Action") or ""),
-        analysis=str(r.get("Analysis") or ""),
+        analysis=_clean_analysis(r.get("Analysis") or ""),
         features=features,
     )
 
