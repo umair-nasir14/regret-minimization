@@ -44,23 +44,43 @@ def _safe_json_loads(s: Any) -> Any | None:
 
 def _clean_analysis(s: Any) -> str:
     """
-    Some rows contain analysis that begins with a Markdown code fence like:
-      ```VERDICT: ...
+    Some rows contain analysis that is wrapped in a Markdown code fence, sometimes
+    with content accidentally placed on the same line as the opening fence, e.g.:
+      ```VERDICT: NOT_PREDICTABLE
+      CONFIDENCE_IN_VERDICT: ...
+      ...
+      ```
 
-    In Markdown, the text after ``` on the same line is treated as the "language",
-    so "VERDICT: ..." won't render. Strip leading/trailing fences so the VERDICT
-    line appears in the UI.
+    In Markdown, the text after ``` on the same line is treated as the "info string"
+    (language), so "VERDICT: ..." won't render as content. This function removes an
+    outermost opening/closing fence while preserving the meaningful first line.
     """
     if s is None:
         return ""
-    t = str(s)
+
+    t = str(s).replace("\r\n", "\n").replace("\r", "\n")
+    # Occasionally content may include a BOM or leading whitespace/newlines.
+    t = t.lstrip("\ufeff").lstrip()
+
     if t.startswith("```"):
-        t = t[3:]
-        # If it was a fence start, the content is usually on the next line.
-        t = t.lstrip("\n")
-    if t.endswith("```"):
-        t = t[:-3]
-        t = t.rstrip("\n")
+        rest = t[3:]
+        # If the fence line includes text, keep it unless it looks like a language tag.
+        if "\n" in rest:
+            first, remainder = rest.split("\n", 1)
+            first_s = first.strip()
+            # Heuristic: treat short non-colon tokens as language identifiers (e.g. "json").
+            if first_s and (":" not in first_s) and (len(first_s) <= 15) and (" " not in first_s):
+                t = remainder
+            else:
+                t = (first + "\n" + remainder).lstrip("\n")
+        else:
+            t = rest
+
+    # Remove a trailing fence (allowing whitespace/newlines before it).
+    t_r = t.rstrip()
+    if t_r.endswith("```"):
+        t = t_r[: -len("```")].rstrip("\n")
+
     return t
 
 
