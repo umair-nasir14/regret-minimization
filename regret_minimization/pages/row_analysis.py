@@ -87,7 +87,7 @@ def _get_selected_row_index() -> int | None:
 df = _load_df(_get_results_signature())
 row_index = _get_selected_row_index()
 
-st.title("Row Analysis")
+st.title("Reasoning Trace Analysis")
 
 if row_index is None:
     st.warning("No row selected. Go back and click a row in the table.")
@@ -109,21 +109,21 @@ with top:
     c1, c2, c3, c4 = _columns([1, 2, 1, 2], vertical_alignment="center")
     c1.metric("row_index", row.row_index)
     c2.metric("timestamp", row.decision_timestamp or "")
-    c3.metric("Action (classified)", row.classified_action or "")
-    c4.metric("Hindsight Action", row.hindsight_action or "")
+    c3.metric("LLM Classifier Actions", row.classified_action or "")
+    c4.metric("Hindsight Optimal Action", row.hindsight_action or "")
 
 st.divider()
 
 left, right = _columns([3, 2], vertical_alignment="top")
 
 with left:
-    st.subheader("Analysis")
+    st.subheader("Reasoning Trace")
     analysis = (row.analysis or "").strip()
     if analysis:
         # Preserve line breaks without forcing monospace unless you prefer st.code.
         st.markdown(analysis.replace("\n", "  \n"))
     else:
-        st.info("No `Analysis` field found for this row.")
+        st.info("No `Reasoning Trace` field found for this row.")
 
 with right:
     st.subheader("Features")
